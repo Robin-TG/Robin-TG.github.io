@@ -32,38 +32,103 @@ if ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window) {
 }
 
 document.getElementById('user-input').addEventListener('keypress', function(event) {
-    if (event.key === 'Enter') {
-        sendMessage();
-    }
+  if (event.key === 'Enter') {
+    sendMessage();
+  }
 });
 
 document.getElementById('new-conversation').addEventListener('click', function() {
-    // Clear the chat history
-    document.getElementById('chat-history').innerHTML = '';
+  storeCurrentConversation();
+  // Clear the chat history
+  document.getElementById('chat-history').innerHTML = '';
 });
 
 function sendMessage() {
-    const userInput = document.getElementById('user-input').value;
+  const userInput = document.getElementById('user-input').value;
 
-    if (!userInput.trim()) return;
+  if (!userInput.trim()) return;
 
-    // Display user message
-    appendMessage(userInput, 'user');
+  // Display user message
+  appendMessage(userInput, 'user');
 
-    // Clear input
-    document.getElementById('user-input').value = '';
+  // Clear input
+  document.getElementById('user-input').value = '';
 
-    // Simulate AI response after a short delay
-    setTimeout(function() {
-        appendMessage("This is a simulated response to: " + userInput, 'ai');
-    }, 1000);
+  // Simulate AI response after a short delay
+  setTimeout(function() {
+    appendMessage("This is a simulated response to: " + userInput, 'ai');
+  }, 1000);
 }
 
 function appendMessage(text, sender) {
-    const chatHistory = document.getElementById('chat-history');
-    const messageElement = document.createElement('div');
-    messageElement.classList.add('message', sender);
-    messageElement.textContent = text;
-    chatHistory.appendChild(messageElement);
-    chatHistory.scrollTop = chatHistory.scrollHeight;
+  const chatHistory = document.getElementById('chat-history');
+  const messageElement = document.createElement('div');
+  messageElement.classList.add('message', sender);
+  messageElement.textContent = text;
+  chatHistory.appendChild(messageElement);
+  chatHistory.scrollTop = chatHistory.scrollHeight;
 }
+
+// Conversation persistence functions
+function loadConversations() {
+  const stored = localStorage.getItem('sieveConversations');
+  if (!stored) return [];
+  try {
+    return JSON.parse(stored);
+  } catch {
+    return [];
+  }
+}
+
+function saveConversations(convs) {
+  localStorage.setItem('sieveConversations', JSON.stringify(convs));
+}
+
+function renderConversations() {
+  const listEl = document.getElementById('conversations-list');
+  listEl.innerHTML = '';
+  const convs = loadConversations();
+  convs.forEach((conv, idx) => {
+    const li = document.createElement('li');
+    li.textContent = conv.name;
+    li.dataset.idx = idx;
+    li.style.cursor = 'pointer';
+    li.addEventListener('click', () => loadConversation(idx));
+    listEl.appendChild(li);
+  });
+}
+
+function loadConversation(idx) {
+  const convs = loadConversations();
+  const conv = convs[idx];
+  if (!conv) return;
+  const chat = document.getElementById('chat-history');
+  chat.innerHTML = '';
+  conv.messages.forEach(m => appendMessage(m.text, m.sender));
+  document.getElementById('conversations-sidebar').style.display = 'none';
+}
+
+function storeCurrentConversation() {
+  const chat = document.getElementById('chat-history');
+  const msgs = Array.from(chat.children).map(el => ({
+    sender: el.classList.contains('user') ? 'user' : 'ai',
+    text: el.textContent
+  }));
+  const convs = loadConversations();
+  const name = 'Chat ' + new Date().toLocaleString();
+  convs.push({name, messages: msgs});
+  saveConversations(convs);
+}
+
+// Toggle sidebar
+const sidebar = document.getElementById('conversations-sidebar');
+sidebar.style.display = 'none';
+
+document.getElementById('conversations-btn').addEventListener('click', () => {
+  if (sidebar.style.display === 'none' || sidebar.style.display === '') {
+    renderConversations();
+    sidebar.style.display = 'block';
+  } else {
+    sidebar.style.display = 'none';
+  }
+});
