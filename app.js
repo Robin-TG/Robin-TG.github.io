@@ -1,4 +1,41 @@
-// Global key for storing current conversation index
+// ================================
+// HF Transformers Setup (FIX 401)
+// ================================
+let generator = null;
+
+async function ensureTransformersLoaded() {
+  if (window.transformers) return;
+
+  const mod = await import(
+    'https://cdn.jsdelivr.net/npm/@huggingface/transformers'
+  );
+
+  window.transformers = mod;
+
+  // 🔥 CRITICAL: prevent 401 errors
+  transformers.env.HF_TOKEN = undefined;
+  transformers.env.useBrowserCache = true;
+  transformers.env.allowLocalModels = false;
+  transformers.env.useFS = false;
+}
+
+// ================================
+// Load Model (FAST + RELIABLE)
+// ================================
+async function loadModel() {
+  if (generator) return;
+
+  await ensureTransformersLoaded();
+
+  generator = await transformers.pipeline(
+    'text-generation',
+    'Xenova/TinyLlama-1.1B-Chat-v1.0'
+  );
+}
+
+// ================================
+// Conversation State
+// ================================
 const currentConvIdxKey = 'sieveCurrentConvIdx';
 
 function getCurrentConvIdx() {
@@ -10,111 +47,78 @@ function setCurrentConvIdx(idx) {
   localStorage.setItem(currentConvIdxKey, idx);
 }
 
-// Voice input using Web Speech API
-const voiceBtn = document.getElementById('voice-input');
-if ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window) {
-  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-  const recognition = new SpeechRecognition();
-  recognition.lang = 'en-US';
-  recognition.continuous = false;
-  recognition.interimResults = false;
-  voiceBtn.addEventListener('click', () => {
-    voiceBtn.disabled = true;
-    recognition.start();
+// ================================
+// Prompt Builder (CHAT FORMAT)
+// ================================
+function buildPrompt(history, userInput) {
+  let prompt = `<|system|>
+You are a helpful, concise assistant.
+</s>
+`;
+
+  if (history) {
+    prompt += history + '\n';
+  }
+
+  prompt += `<|user|>
+${userInput}
+</s>
+<|assistant|>
+`;
+
+  return prompt;
+}
+
+// ================================
+// Generate Answer
+// ================================
+async function generateAnswer(history, userInput) {
+  await loadModel();
+  if (!generator) return 'Model failed to load.';
+
+  const prompt = buildPrompt(history, userInput);
+
+  const output = await generator(prompt, {
+    max_new_tokens: 120,
+    temperature: 0.7,
+    top_p: 0.9,
+    repetition_penalty: 1.15,
   });
-  recognition.onstart = () => {
-    voiceBtn.classList.add('recording');
-  };
-  recognition.onresult = (event) => {
-    const transcript = event.results[0][0].transcript;
-    document.getElementById('user-input').value = transcript;
-    sendMessage();
-  };
-  recognition.onerror = (event) => {
-    console.error(event.error);
-  };
-  recognition.onend = () => {
-    voiceBtn.disabled = false;
-    voiceBtn.classList.remove('recording');
-  };
-} else {
-  voiceBtn.disabled = true;
+
+  let text = output[0].generated_text;
+
+  // Extract assistant response
+  if (text.includes('<|assistant|>')) {
+    text = text.split('<|assistant|>').pop();
+  }
+
+  if (text.includes('<|user|>')) {
+    text = text.split('<|user|>')[0];
+  }
+
+  return text.trim() || '…';
 }
 
-// Send message on button click
-document.getElementById('send-button').addEventListener('click', sendMessage);
-
-// Send message on Enter key
-document.getElementById('user-input').addEventListener('keypress', function(event) {
-  if (event.key === 'Enter') {
-    sendMessage();
-  }
-});
-
-// New conversation button
-document.getElementById('new-conversation').addEventListener('click', function() {
-  // Store current conversation
-  storeCurrentConversation();
-  // Create a new conversation entry
-  const convs = loadConversations();
-  const name = 'Chat ' + new Date().toLocaleString();
-  convs.push({ name, messages: [] });
-  const newIdx = convs.length - 1;
-  setCurrentConvIdx(newIdx);
-  saveConversations(convs);
-  // Clear the chat history for the new conversation
-  document.getElementById('chat-history').innerHTML = '';
-});
-
-function sendMessage() {
-  const userInput = document.getElementById('user-input').value;
-  if (!userInput.trim()) return;
-  // Display user message
-  appendMessage(userInput, 'user');
-  // Update stored conversation if exists
-  const idx = getCurrentConvIdx();
-  if (idx !== null) {
-    const convs = loadConversations();
-    const conv = convs[idx];
-    if (conv) {
-      conv.messages.push({ sender: 'user', text: userInput });
-      saveConversations(convs);
-    }
-  }
-  // Clear input
-  document.getElementById('user-input').value = '';
-
-  // Simulate AI response after a short delay
-  setTimeout(function() {
-    const aiText = "This is a simulated response to: " + userInput;
-    appendMessage(aiText, 'ai');
-    const aiIdx = getCurrentConvIdx();
-    if (aiIdx !== null) {
-      const convs = loadConversations();
-      const conv = convs[aiIdx];
-      if (conv) {
-        conv.messages.push({ sender: 'ai', text: aiText });
-        saveConversations(convs);
-      }
-    }
-  }, 1000);
-}
-
+// ================================
+// UI Helpers
+// ================================
 function appendMessage(text, sender) {
-  const chatHistory = document.getElementById('chat-history');
-  const messageElement = document.createElement('div');
-  messageElement.classList.add('message', sender);
-  messageElement.textContent = text;
-  chatHistory.appendChild(messageElement);
-  chatHistory.scrollTop = chatHistory.scrollHeight;
+  const chat = document.getElementById('chat-history');
+
+  const el = document.createElement('div');
+  el.classList.add('message', sender);
+  el.textContent = text;
+
+  chat.appendChild(el);
+  chat.scrollTop = chat.scrollHeight;
 }
 
-// Conversation persistence functions
+// ================================
+// Storage
+// ================================
 function loadConversations() {
-  const stored = localStorage.getItem('sieveConversations');
-  if (!stored) return [];
   try {
-    return JSON.parse(stored);
+    return JSON.parse(localStorage.getItem('sieveConversations')) || [];
   } catch {
     return [];
   }
@@ -124,35 +128,84 @@ function saveConversations(convs) {
   localStorage.setItem('sieveConversations', JSON.stringify(convs));
 }
 
+// ================================
+// Send Message
+// ================================
+async function sendMessage() {
+  const inputEl = document.getElementById('user-input');
+  const userInput = inputEl.value.trim();
+  if (!userInput) return;
+
+  appendMessage(userInput, 'user');
+  inputEl.value = '';
+
+  const convs = loadConversations();
+  const idx = getCurrentConvIdx();
+
+  let history = '';
+
+  if (idx !== null && convs[idx]) {
+    const conv = convs[idx];
+
+    history = conv.messages
+      .map(m =>
+        m.sender === 'user'
+          ? `<|user|>\n${m.text}\n</s>`
+          : `<|assistant|>\n${m.text}\n</s>`
+      )
+      .join('\n');
+
+    conv.messages.push({ sender: 'user', text: userInput });
+  }
+
+  saveConversations(convs);
+
+  appendMessage('...', 'ai');
+
+  const aiText = await generateAnswer(history, userInput);
+
+  const chat = document.getElementById('chat-history');
+  chat.lastChild.textContent = aiText;
+
+  if (idx !== null && convs[idx]) {
+    convs[idx].messages.push({ sender: 'ai', text: aiText });
+    saveConversations(convs);
+  }
+}
+
+// ================================
+// Conversation UI
+// ================================
 function renderConversations() {
-  const listEl = document.getElementById('conversations-list');
-  listEl.innerHTML = '';
+  const list = document.getElementById('conversations-list');
+  list.innerHTML = '';
+
   const convs = loadConversations();
   const currentIdx = getCurrentConvIdx();
+
   convs.forEach((conv, idx) => {
     const li = document.createElement('li');
     li.textContent = conv.name;
-    li.dataset.idx = idx;
     li.style.cursor = 'pointer';
+
     if (idx === currentIdx) li.classList.add('selected');
-    li.addEventListener('click', () => loadConversation(idx));
-    listEl.appendChild(li);
+
+    li.onclick = () => loadConversation(idx);
+
+    list.appendChild(li);
   });
 }
 
 function loadConversation(idx) {
-  // Store current conversation before switching
-  const currIdx = getCurrentConvIdx();
-  if (currIdx !== null) {
-    storeCurrentConversation();
-  }
   const convs = loadConversations();
   const conv = convs[idx];
   if (!conv) return;
+
   const chat = document.getElementById('chat-history');
   chat.innerHTML = '';
+
   conv.messages.forEach(m => appendMessage(m.text, m.sender));
-  document.getElementById('conversations-sidebar').style.display = 'none';
+
   setCurrentConvIdx(idx);
   renderConversations();
 }
@@ -160,30 +213,89 @@ function loadConversation(idx) {
 function storeCurrentConversation() {
   const idx = getCurrentConvIdx();
   const chat = document.getElementById('chat-history');
+
   const msgs = Array.from(chat.children).map(el => ({
     sender: el.classList.contains('user') ? 'user' : 'ai',
     text: el.textContent
   }));
+
   const convs = loadConversations();
   const name = 'Chat ' + new Date().toLocaleString();
+
   if (idx !== null && convs[idx]) {
     convs[idx] = { name, messages: msgs };
   } else {
     convs.push({ name, messages: msgs });
     setCurrentConvIdx(convs.length - 1);
   }
+
   saveConversations(convs);
 }
 
-// Toggle sidebar
+// ================================
+// Voice Input
+// ================================
+const voiceBtn = document.getElementById('voice-input');
+
+if ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window) {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const rec = new SR();
+
+  rec.lang = 'en-US';
+
+  voiceBtn.onclick = () => {
+    voiceBtn.disabled = true;
+    voiceBtn.classList.add('recording');
+    rec.start();
+  };
+
+  rec.onresult = (e) => {
+    document.getElementById('user-input').value =
+      e.results[0][0].transcript;
+    sendMessage();
+  };
+
+  rec.onend = () => {
+    voiceBtn.disabled = false;
+    voiceBtn.classList.remove('recording');
+  };
+} else {
+  voiceBtn.disabled = true;
+}
+
+// ================================
+// Events
+// ================================
+document.getElementById('send-button').onclick = sendMessage;
+
+document.getElementById('user-input').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    sendMessage();
+  }
+});
+
+document.getElementById('new-conversation').onclick = () => {
+  storeCurrentConversation();
+
+  const convs = loadConversations();
+  const name = 'Chat ' + new Date().toLocaleString();
+
+  convs.push({ name, messages: [] });
+  setCurrentConvIdx(convs.length - 1);
+
+  saveConversations(convs);
+  document.getElementById('chat-history').innerHTML = '';
+};
+
 const sidebar = document.getElementById('conversations-sidebar');
 sidebar.style.display = 'none';
 
-document.getElementById('conversations-btn').addEventListener('click', () => {
-  if (sidebar.style.display === 'none' || sidebar.style.display === '') {
+document.getElementById('conversations-btn').onclick = () => {
+  if (sidebar.style.display === 'none') {
     renderConversations();
     sidebar.style.display = 'block';
   } else {
     sidebar.style.display = 'none';
   }
-});
+};
