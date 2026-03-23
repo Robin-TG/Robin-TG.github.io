@@ -191,3 +191,8 @@ h1 {
 #conversations-list li.selected {
   background-color: #d0f0d0;
 }
+
+.interim {
+  opacity: 0.5;
+}
+

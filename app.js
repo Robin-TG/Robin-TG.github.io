@@ -1,8 +1,19 @@
 // ================================
-// HF Transformers Setup (FIX 401)
+// CONFIG (MODEL)
 // ================================
-let generator = null;
+const MODEL_NAME = 
+// "HuggingFaceTB/SmolLM2-360M-Instruct"; 
+"HuggingFaceTB/SmolLM3-3B-ONNX";
+// "onnx-community/Qwen2.5-0.5B-Instruct";
+// 'Xenova/Qwen2.5-0.5B-Instruct'
+//'Xenova/TinyLlama-1.1B-Chat-v1.0'; // -q4';
 
+let generator = null;
+let loadingPromise = null;
+
+// ================================
+// Load Transformers.js
+// ================================
 async function ensureTransformersLoaded() {
   if (window.transformers) return;
 
@@ -12,25 +23,41 @@ async function ensureTransformersLoaded() {
 
   window.transformers = mod;
 
-  // 🔥 CRITICAL: prevent 401 errors
-  transformers.env.HF_TOKEN = undefined;
-  transformers.env.useBrowserCache = true;
   transformers.env.allowLocalModels = false;
+  transformers.env.useBrowserCache = true;
   transformers.env.useFS = false;
+  transformers.env.HF_TOKEN = null;
 }
 
 // ================================
-// Load Model (FAST + RELIABLE)
+// Load Model (SAFE)
 // ================================
 async function loadModel() {
-  if (generator) return;
+  if (generator) return generator;
 
-  await ensureTransformersLoaded();
+  if (loadingPromise) return loadingPromise;
 
-  generator = await transformers.pipeline(
-    'text-generation',
-    'Xenova/TinyLlama-1.1B-Chat-v1.0'
-  );
+  loadingPromise = (async () => {
+    await ensureTransformersLoaded();
+
+    const pipe = await transformers.pipeline(
+      'text-generation',
+      MODEL_NAME,
+      {
+        dtype: 'q4f16',
+        device: 'webgpu',
+        return_full_text: false,
+        temperature: 0.2,
+        progress_callback: (p) => console.log('Loading:', p),
+      }
+    );
+
+    console.log('✅ Model loaded');
+    generator = pipe;
+    return generator;
+  })();
+
+  return loadingPromise;
 }
 
 // ================================
@@ -48,22 +75,49 @@ function setCurrentConvIdx(idx) {
 }
 
 // ================================
-// Prompt Builder (CHAT FORMAT)
+// Prompt Builder
 // ================================
 function buildPrompt(history, userInput) {
-  let prompt = `<|system|>
-You are a helpful, concise assistant.
+  history = (history ?? '').toString();
+  userInput = (userInput ?? '').toString();
+
+  let oldprompt = `<|system|>
+You are a helpful assistant.
 </s>
 `;
 
-  if (history) {
-    prompt += history + '\n';
-  }
+  if (history) oldprompt += history + '\n';
 
-  prompt += `<|user|>
+  oldprompt += `<|user|>
 ${userInput}
 </s>
 <|assistant|>
+`;
+
+let prompt = `<|im_start|>system
+You are a routing classifier.
+
+Task: classify the user message.
+
+Output format (must match exactly):
+TYPE=<WEB_SEARCH|LLM>
+QUERY=<short keywords>
+
+Rules:
+- Output ONLY the format above
+- No explanations
+- No quotes
+- No sentences
+- Do NOT answer the question
+
+Definitions:
+WEB_SEARCH = real-world, current, or time-based information
+LLM = explanations, reasoning, general knowledge
+
+<|im_end|>
+<|im_start|>user
+${userInput}<|im_end|>
+<|im_start|>assistant
 `;
 
   return prompt;
@@ -73,21 +127,31 @@ ${userInput}
 // Generate Answer
 // ================================
 async function generateAnswer(history, userInput) {
-  await loadModel();
-  if (!generator) return 'Model failed to load.';
+  const pipe = await loadModel();
 
-  const prompt = buildPrompt(history, userInput);
+  if (!pipe) throw new Error('Model failed to load');
 
-  const output = await generator(prompt, {
-    max_new_tokens: 120,
-    temperature: 0.7,
+  const safeHistory = (history ?? '').toString();
+  const safeInput = (userInput ?? '').toString();
+
+  const prompt = buildPrompt(safeHistory, safeInput);
+
+  if (!prompt || typeof prompt !== 'string') {
+    console.error('BAD PROMPT:', prompt);
+    throw new Error('Invalid prompt');
+  }
+
+  console.log('PROMPT:', prompt);
+
+  const output = await pipe(prompt, {
+    max_new_tokens: 360,
+    temperature: 0.2,
     top_p: 0.9,
     repetition_penalty: 1.15,
   });
 
-  let text = output[0].generated_text;
+  let text = output?.[0]?.generated_text ?? '';
 
-  // Extract assistant response
   if (text.includes('<|assistant|>')) {
     text = text.split('<|assistant|>').pop();
   }
@@ -96,7 +160,7 @@ async function generateAnswer(history, userInput) {
     text = text.split('<|user|>')[0];
   }
 
-  return text.trim() || '…';
+  return text.trim() || '...';
 }
 
 // ================================
@@ -107,7 +171,7 @@ function appendMessage(text, sender) {
 
   const el = document.createElement('div');
   el.classList.add('message', sender);
-  el.textContent = text;
+  el.textContent = (text ?? '').toString();
 
   chat.appendChild(el);
   chat.scrollTop = chat.scrollHeight;
@@ -133,8 +197,10 @@ function saveConversations(convs) {
 // ================================
 async function sendMessage() {
   const inputEl = document.getElementById('user-input');
-  const userInput = inputEl.value.trim();
+  const userInput = (inputEl.value ?? '').toString().trim();
   if (!userInput) return;
+
+  inputEl.classList.remove('interim');
 
   appendMessage(userInput, 'user');
   inputEl.value = '';
@@ -148,11 +214,13 @@ async function sendMessage() {
     const conv = convs[idx];
 
     history = conv.messages
-      .map(m =>
-        m.sender === 'user'
-          ? `<|user|>\n${m.text}\n</s>`
-          : `<|assistant|>\n${m.text}\n</s>`
-      )
+      .map(m => {
+        const safeText = (m.text ?? '').toString();
+
+        return m.sender === 'user'
+          ? `<|user|>\n${safeText}\n</s>`
+          : `<|assistant|>\n${safeText}\n</s>`;
+      })
       .join('\n');
 
     conv.messages.push({ sender: 'user', text: userInput });
@@ -162,15 +230,91 @@ async function sendMessage() {
 
   appendMessage('...', 'ai');
 
-  const aiText = await generateAnswer(history, userInput);
+  try {
+    const aiText = await generateAnswer(history, userInput);
 
-  const chat = document.getElementById('chat-history');
-  chat.lastChild.textContent = aiText;
+    const chat = document.getElementById('chat-history');
+    chat.lastChild.textContent = aiText;
 
-  if (idx !== null && convs[idx]) {
-    convs[idx].messages.push({ sender: 'ai', text: aiText });
-    saveConversations(convs);
+    if (idx !== null && convs[idx]) {
+      convs[idx].messages.push({ sender: 'ai', text: aiText });
+      saveConversations(convs);
+    }
+  } catch (err) {
+    console.error(err);
+    const chat = document.getElementById('chat-history');
+    chat.lastChild.textContent = 'Error generating response.';
   }
+}
+
+// ================================
+// Voice Input (FINAL ONLY)
+// ================================
+const voiceBtn = document.getElementById('voice-input');
+
+if ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window) {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const recognition = new SR();
+
+  recognition.lang = 'en-US';
+  recognition.continuous = false;
+  recognition.interimResults = true;
+
+  let finalTranscript = '';
+
+  voiceBtn.onclick = () => {
+    voiceBtn.disabled = true;
+    recognition.start();
+  };
+
+  recognition.onstart = () => {
+    finalTranscript = '';
+    voiceBtn.classList.add('recording');
+  };
+
+  recognition.onresult = (event) => {
+    let interimTranscript = '';
+
+    for (let i = event.resultIndex; i < event.results.length; i++) {
+      const transcript = (event.results[i][0].transcript ?? '').toString();
+
+      if (event.results[i].isFinal) {
+        finalTranscript += transcript + ' ';
+      } else {
+        interimTranscript += transcript;
+      }
+    }
+
+    const inputEl = document.getElementById('user-input');
+
+    const displayText = (finalTranscript + interimTranscript).trim();
+    inputEl.value = displayText || '';
+
+    if (interimTranscript.length > 0) {
+      inputEl.classList.add('interim');
+    } else {
+      inputEl.classList.remove('interim');
+    }
+  };
+
+  recognition.onerror = (e) => console.error(e);
+
+  recognition.onend = () => {
+    voiceBtn.disabled = false;
+    voiceBtn.classList.remove('recording');
+
+    const finalText = (finalTranscript ?? '').trim();
+
+    if (finalText.length > 0) {
+      const inputEl = document.getElementById('user-input');
+      inputEl.value = finalText;
+      inputEl.classList.remove('interim');
+
+      sendMessage();
+    }
+  };
+} else {
+  voiceBtn.disabled = true;
 }
 
 // ================================
@@ -204,7 +348,9 @@ function loadConversation(idx) {
   const chat = document.getElementById('chat-history');
   chat.innerHTML = '';
 
-  conv.messages.forEach(m => appendMessage(m.text, m.sender));
+  conv.messages.forEach(m =>
+    appendMessage((m.text ?? '').toString(), m.sender)
+  );
 
   setCurrentConvIdx(idx);
   renderConversations();
@@ -216,7 +362,7 @@ function storeCurrentConversation() {
 
   const msgs = Array.from(chat.children).map(el => ({
     sender: el.classList.contains('user') ? 'user' : 'ai',
-    text: el.textContent
+    text: (el.textContent ?? '').toString()
   }));
 
   const convs = loadConversations();
@@ -230,37 +376,6 @@ function storeCurrentConversation() {
   }
 
   saveConversations(convs);
-}
-
-// ================================
-// Voice Input
-// ================================
-const voiceBtn = document.getElementById('voice-input');
-
-if ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window) {
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  const rec = new SR();
-
-  rec.lang = 'en-US';
-
-  voiceBtn.onclick = () => {
-    voiceBtn.disabled = true;
-    voiceBtn.classList.add('recording');
-    rec.start();
-  };
-
-  rec.onresult = (e) => {
-    document.getElementById('user-input').value =
-      e.results[0][0].transcript;
-    sendMessage();
-  };
-
-  rec.onend = () => {
-    voiceBtn.disabled = false;
-    voiceBtn.classList.remove('recording');
-  };
-} else {
-  voiceBtn.disabled = true;
 }
 
 // ================================
