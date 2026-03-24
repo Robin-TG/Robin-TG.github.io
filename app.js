@@ -120,6 +120,29 @@ ${userInput}<|im_end|>
 <|im_start|>assistant
 `;
 
+ prompt = `<|system|>You are a strict routing classifier.
+
+Task:
+Given a user input, do exactly one of the following:
+
+1) If the input requires external or up-to-date information, classify as WEB_SEARCH and produce a short, optimized search query.
+2) Otherwise, classify as LLM_QUESTION and rewrite the input to its minimal core meaning.
+
+Output format (MANDATORY):
+[TYPE] "result"
+
+Examples:
+Input: What’s the weather in Kuala Lumpur tomorrow?
+Output: [WEB_SEARCH] "Kuala Lumpur weather tomorrow"
+
+Input: Can you explain how neural networks learn?
+Output: [LLM_QUESTION] "how neural networks learn"
+
+<|user|>
+Input: ${userInput}
+<|assistant|>Output:`;
+
+
   return prompt;
 }
 
