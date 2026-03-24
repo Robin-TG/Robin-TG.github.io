@@ -1,14 +1,10 @@
 // ================================
-// CONFIG (MODEL)
+// CONFIG (EMBEDDING MODEL)
 // ================================
-const MODEL_NAME = 
-// "HuggingFaceTB/SmolLM2-360M-Instruct"; 
-"HuggingFaceTB/SmolLM3-3B-ONNX";
-// "onnx-community/Qwen2.5-0.5B-Instruct";
-// 'Xenova/Qwen2.5-0.5B-Instruct'
-//'Xenova/TinyLlama-1.1B-Chat-v1.0'; // -q4';
+const EMBED_MODEL = "Xenova/paraphrase-multilingual-MiniLM-L12-v2";
 
-let generator = null;
+let embedder = null;
+let intentVectors = null;
 let loadingPromise = null;
 
 // ================================
@@ -26,166 +22,394 @@ async function ensureTransformersLoaded() {
   transformers.env.allowLocalModels = false;
   transformers.env.useBrowserCache = true;
   transformers.env.useFS = false;
-  transformers.env.HF_TOKEN = null;
 }
 
 // ================================
-// Load Model (SAFE)
+// INIT ROUTER
 // ================================
-async function loadModel() {
-  if (generator) return generator;
+const INTENTS = {
+  WEB_SEARCH: [
+    "weather forecast tomorrow",
+    "weather next week",
+    "latest news today",
+    "current bitcoin price",
+    "football match result",
+    "latest sports news",
+    "flight status today",
+    "time in Tokyo",
+    "restaurants near me"
+  ],
+  LLM_QUESTION: [
+    "explain a concept",
+    "how something works",
+    "why something happens",
+    "difference between two things",
+    "write an example",
+    "summarize this text",
+    "you know about",
+    "want to know about"
+  ]
+};
 
+async function initRouter() {
+  if (embedder) return embedder;
   if (loadingPromise) return loadingPromise;
 
   loadingPromise = (async () => {
     await ensureTransformersLoaded();
 
-    const pipe = await transformers.pipeline(
-      'text-generation',
-      MODEL_NAME,
+    embedder = await transformers.pipeline(
+      "feature-extraction",
+      EMBED_MODEL,
       {
-        dtype: 'q4f16',
-        device: 'webgpu',
-        return_full_text: false,
-        temperature: 0.2,
-        progress_callback: (p) => console.log('Loading:', p),
+        dtype: "q4",
+        progress_callback: (p) => console.log("Loading router:", p)
       }
     );
 
-    console.log('✅ Model loaded');
-    generator = pipe;
-    return generator;
+    intentVectors = {};
+
+    for (const type in INTENTS) {
+      intentVectors[type] = [];
+
+      for (const example of INTENTS[type]) {
+        intentVectors[type].push(await embed(example));
+      }
+    }
+
+    console.log("+ Router ready");
+    return embedder;
   })();
 
   return loadingPromise;
 }
 
 // ================================
-// Conversation State
+// Voice Input
 // ================================
-const currentConvIdxKey = 'sieveCurrentConvIdx';
+const voiceBtn = document.getElementById('voice-input');
 
-function getCurrentConvIdx() {
-  const val = localStorage.getItem(currentConvIdxKey);
-  return val !== null ? parseInt(val, 10) : null;
+let recognition = null;
+let recognizing = false;
+let finalTranscript = '';
+
+function initSpeech() {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) return null;
+
+  const rec = new SR();
+
+  rec.lang = 'en-US';
+  rec.continuous = false;
+  rec.interimResults = true;
+
+  rec.onstart = () => {
+    recognizing = true;
+    finalTranscript = '';
+    voiceBtn.classList.add('recording');
+  };
+
+  rec.onresult = (event) => {
+    let interim = '';
+
+    for (let i = event.resultIndex; i < event.results.length; i++) {
+      const t = (event.results[i][0].transcript ?? '').toString();
+
+      if (event.results[i].isFinal) {
+        finalTranscript += t + ' ';
+      } else {
+        interim += t;
+      }
+    }
+
+    const inputEl = document.getElementById('user-input');
+    inputEl.value = (finalTranscript + interim).trim();
+
+    if (interim) {
+      inputEl.classList.add('interim');
+    } else {
+      inputEl.classList.remove('interim');
+    }
+  };
+
+  rec.onerror = (e) => {
+    console.error("Speech error:", e);
+    recognizing = false;
+    voiceBtn.classList.remove('recording');
+    voiceBtn.disabled = false;
+  };
+
+  rec.onend = () => {
+    recognizing = false;
+    voiceBtn.classList.remove('recording');
+    voiceBtn.disabled = false;
+
+    const finalText = finalTranscript.trim();
+
+    if (finalText) {
+      const inputEl = document.getElementById('user-input');
+      inputEl.value = finalText;
+      inputEl.classList.remove('interim');
+
+      // delay avoids race condition with UI + recognition
+      setTimeout(() => sendMessage(), 50);
+    }
+  };
+
+  return rec;
 }
 
-function setCurrentConvIdx(idx) {
-  localStorage.setItem(currentConvIdxKey, idx);
+// Initialize once
+if ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window) {
+  recognition = initSpeech();
+
+  voiceBtn.onclick = () => {
+    if (!recognition) {
+      recognition = initSpeech();
+    }
+
+    if (recognizing) {
+      recognition.stop();
+      return;
+    }
+
+    try {
+      voiceBtn.disabled = true;
+      recognition.start();
+    } catch (e) {
+      console.warn("Restarting recognition...");
+      recognition = initSpeech();
+      recognition.start();
+    }
+  };
+} else {
+  voiceBtn.disabled = true;
 }
 
 // ================================
-// Prompt Builder
+// EMBEDDING
 // ================================
-function buildPrompt(history, userInput) {
-  history = (history ?? '').toString();
-  userInput = (userInput ?? '').toString();
-
-  let oldprompt = `<|system|>
-You are a helpful assistant.
-</s>
-`;
-
-  if (history) oldprompt += history + '\n';
-
-  oldprompt += `<|user|>
-${userInput}
-</s>
-<|assistant|>
-`;
-
-let prompt = `<|im_start|>system
-You are a routing classifier.
-
-Task: classify the user message.
-
-Output format (must match exactly):
-TYPE=<WEB_SEARCH|LLM>
-QUERY=<short keywords>
-
-Rules:
-- Output ONLY the format above
-- No explanations
-- No quotes
-- No sentences
-- Do NOT answer the question
-
-Definitions:
-WEB_SEARCH = real-world, current, or time-based information
-LLM = explanations, reasoning, general knowledge
-
-<|im_end|>
-<|im_start|>user
-${userInput}<|im_end|>
-<|im_start|>assistant
-`;
-
- prompt = `<|system|>You are a strict routing classifier.
-
-Task:
-Given a user input, do exactly one of the following:
-
-1) If the input requires external or up-to-date information, classify as WEB_SEARCH and produce a short, optimized search query.
-2) Otherwise, classify as LLM_QUESTION and rewrite the input to its minimal core meaning.
-
-Output format (MANDATORY):
-[TYPE] "result"
-
-Examples:
-Input: What’s the weather in Kuala Lumpur tomorrow?
-Output: [WEB_SEARCH] "Kuala Lumpur weather tomorrow"
-
-Input: Can you explain how neural networks learn?
-Output: [LLM_QUESTION] "how neural networks learn"
-
-<|user|>
-Input: ${userInput}
-<|assistant|>Output:`;
-
-
-  return prompt;
+async function embed(text) {
+  const out = await embedder(text, {
+    pooling: "mean",
+    normalize: true
+  });
+  return out.data;
 }
 
 // ================================
-// Generate Answer
+// COSINE SIMILARITY
 // ================================
-async function generateAnswer(history, userInput) {
-  const pipe = await loadModel();
+function cosine(a, b) {
+  let dot = 0, na = 0, nb = 0;
 
-  if (!pipe) throw new Error('Model failed to load');
-
-  const safeHistory = (history ?? '').toString();
-  const safeInput = (userInput ?? '').toString();
-
-  const prompt = buildPrompt(safeHistory, safeInput);
-
-  if (!prompt || typeof prompt !== 'string') {
-    console.error('BAD PROMPT:', prompt);
-    throw new Error('Invalid prompt');
+  for (let i = 0; i < a.length; i++) {
+    dot += a[i] * b[i];
+    na += a[i] * a[i];
+    nb += b[i] * b[i];
   }
 
-  console.log('PROMPT:', prompt);
+  return dot / (Math.sqrt(na) * Math.sqrt(nb));
+}
 
-  const output = await pipe(prompt, {
-    max_new_tokens: 360,
-    temperature: 0.2,
-    top_p: 0.9,
-    repetition_penalty: 1.15,
+// ================================
+// CLASSIFIER
+// ================================
+async function classify(input) {
+  await initRouter();
+
+  const vec = await embed(input);
+
+  let bestType = null;
+  let bestScore = -1;
+
+  for (const type in intentVectors) {
+    for (const ref of intentVectors[type]) {
+      const s = cosine(vec, ref);
+      if (s > bestScore) {
+        bestScore = s;
+        bestType = type;
+      }
+    }
+  }
+
+console.log(bestScore);
+  if (bestType === "WEB_SEARCH" && bestScore > 0.52) {
+    return `[WEB_SEARCH] "${clean(input)}"`;
+  }
+
+  return `[LLM_QUESTION] "${condense(input)}"`;
+}
+
+// ================================
+// TEXT CLEANING
+// ================================
+
+// WEB
+function clean(text) {
+  let t = text.toLowerCase();
+
+  // normalize entities FIRST
+  t = t
+    .replace(/\bkl\b/g, "kuala lumpur")
+    .replace(/\bbtc\b/g, "bitcoin");
+
+  // remove full phrases
+  t = t.replace(/\b(what is|what's|what are|tell me|show me|can you|please|you know|sort of)\b/gi, "");
+
+  // remove weak / useless words
+  t = t.replace(/\b(what|which|who|when|where|why|how)\b/gi, "");
+  t = t.replace(/\b(is|are|was|were|be|been|being)\b/gi, "");
+  t = t.replace(/\b(going|gonna|will|would|should|could)\b/gi, "");
+
+  // remove time fluff (keep meaningful ones like "tomorrow")
+  t = t.replace(/\b(right now|currently|at the moment)\b/gi, "");
+
+  // normalize punctuation
+  t = t.replace(/[^\p{L}\p{N}\s]/gu, " ");
+
+  let tokens = t.split(/\s+/).filter(Boolean);
+
+  // stronger stopwords
+  const stop = new Set([
+    "the","a","an","to","of","in","on","for","and","or","it","this","that"
+  ]);
+
+  tokens = tokens.filter(w => !stop.has(w));
+
+  // intent-first ordering
+  const priority = [
+    "weather","forecast","price","stock","bitcoin",
+    "news","score","result","time","date","flight","status",
+    "sports", "football"
+  ];
+
+  tokens.sort((a, b) => {
+    const pa = priority.includes(a) ? -1 : 0;
+    const pb = priority.includes(b) ? -1 : 0;
+    return pa - pb;
   });
 
-  let text = output?.[0]?.generated_text ?? '';
+  // dedupe
+  tokens = [...new Set(tokens)];
 
-  if (text.includes('<|assistant|>')) {
-    text = text.split('<|assistant|>').pop();
-  }
+  // limit length
+  tokens = tokens.slice(0, 6);
 
-  if (text.includes('<|user|>')) {
-    text = text.split('<|user|>')[0];
-  }
-
-  return text.trim() || '...';
+  return tokens.join(" ");
 }
 
+// LLM
+function condense(text) {
+  let t = text.toLowerCase();
+
+  // -------------------------
+  // 1. Normalize entities FIRST
+  // -------------------------
+  t = t
+    .replace(/\bkl\b/g, "kuala lumpur")
+    .replace(/\bbtc\b/g, "bitcoin");
+
+  // -------------------------
+  // 2. Remove conversational fluff
+  // -------------------------
+  const phrases = [
+    "can you",
+    "could you",
+    "would you",
+    "please",
+    "tell me",
+    "i want to know",
+    "do you know",
+    "help me",
+    "is it possible to"
+  ];
+
+  var regex = new RegExp(`\\b(${phrases.join("|")})\\b`, "gi");
+  t = t.replace(regex, "");
+
+  // -------------------------
+  // 3. Remove weak verbs (but KEEP core verbs like "explain why")
+  // -------------------------
+  
+    const verbs = [
+    "give",
+    "provide",
+    "show",
+    "list",
+    "describe",
+    "elaborate",
+    "talk about"
+  ];
+
+  regex = new RegExp(`\\b(${verbs.join("|")})\\b`, "gi");
+  t = t.replace(regex, "");
+  
+  // -------------------------
+  // 4. Normalize question forms
+  // -------------------------
+  t = t.replace(/\bwhat is\b/g, "");
+  t = t.replace(/\bhow does\b/g, "how");
+  t = t.replace(/\bwhy does\b/g, "why");
+
+  // -------------------------
+  // 5. Remove filler / noise
+  // -------------------------
+    const filler = [
+    "actually",
+    "basically",
+    "generally",
+    "in detail",
+    "a bit",
+    "a little",
+    "kind of",
+    "sort of"
+  ];
+
+  regex = new RegExp(`\\b(${filler.join("|")})\\b`, "gi");
+  t = t.replace(regex, "");
+
+
+  // -------------------------
+  // 6. Remove grammar glue
+  // -------------------------
+  t = t.replace(/\b(the|a|an|to|of|in|on|for|and|or|it|this|that)\b/gi, "");
+
+  // -------------------------
+  // 7. Normalize punctuation
+  // -------------------------
+  t = t.replace(/[^\p{L}\p{N}\s]/gu, " ");
+
+  let tokens = t.split(/\s+/).filter(Boolean);
+
+  // -------------------------
+  // 8. Remove weak endings
+  // -------------------------
+  tokens = tokens.filter(w => !w.match(/^(is|are|was|were|be|been)$/));
+
+  // -------------------------
+  // 9. Deduplicate
+  // -------------------------
+  tokens = [...new Set(tokens)];
+
+  // -------------------------
+  // 10. Keep structure: preserve leading intent words
+  // -------------------------
+  const intentWords = ["why", "how", "difference", "compare"];
+
+  tokens.sort((a, b) => {
+    const pa = intentWords.includes(a) ? -1 : 0;
+    const pb = intentWords.includes(b) ? -1 : 0;
+    return pa - pb;
+  });
+
+  // -------------------------
+  // 11. Limit length (LLM efficiency)
+  // -------------------------
+  // tokens = tokens.slice(0, 8);
+
+  return tokens.join(" ");
+}
 // ================================
 // UI Helpers
 // ================================
@@ -215,190 +439,41 @@ function saveConversations(convs) {
   localStorage.setItem('sieveConversations', JSON.stringify(convs));
 }
 
+const currentConvIdxKey = 'sieveCurrentConvIdx';
+
+function getCurrentConvIdx() {
+  const val = localStorage.getItem(currentConvIdxKey);
+  return val !== null ? parseInt(val, 10) : null;
+}
+
+function setCurrentConvIdx(idx) {
+  localStorage.setItem(currentConvIdxKey, idx);
+}
+
 // ================================
-// Send Message
+// Send Message (ROUTER ONLY)
 // ================================
 async function sendMessage() {
   const inputEl = document.getElementById('user-input');
   const userInput = (inputEl.value ?? '').toString().trim();
   if (!userInput) return;
 
-  inputEl.classList.remove('interim');
-
   appendMessage(userInput, 'user');
   inputEl.value = '';
-
-  const convs = loadConversations();
-  const idx = getCurrentConvIdx();
-
-  let history = '';
-
-  if (idx !== null && convs[idx]) {
-    const conv = convs[idx];
-
-    history = conv.messages
-      .map(m => {
-        const safeText = (m.text ?? '').toString();
-
-        return m.sender === 'user'
-          ? `<|user|>\n${safeText}\n</s>`
-          : `<|assistant|>\n${safeText}\n</s>`;
-      })
-      .join('\n');
-
-    conv.messages.push({ sender: 'user', text: userInput });
-  }
-
-  saveConversations(convs);
 
   appendMessage('...', 'ai');
 
   try {
-    const aiText = await generateAnswer(history, userInput);
+    const result = await classify(userInput);
 
     const chat = document.getElementById('chat-history');
-    chat.lastChild.textContent = aiText;
+    chat.lastChild.textContent = result;
 
-    if (idx !== null && convs[idx]) {
-      convs[idx].messages.push({ sender: 'ai', text: aiText });
-      saveConversations(convs);
-    }
   } catch (err) {
     console.error(err);
     const chat = document.getElementById('chat-history');
-    chat.lastChild.textContent = 'Error generating response.';
+    chat.lastChild.textContent = 'Error.';
   }
-}
-
-// ================================
-// Voice Input (FINAL ONLY)
-// ================================
-const voiceBtn = document.getElementById('voice-input');
-
-if ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window) {
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  const recognition = new SR();
-
-  recognition.lang = 'en-US';
-  recognition.continuous = false;
-  recognition.interimResults = true;
-
-  let finalTranscript = '';
-
-  voiceBtn.onclick = () => {
-    voiceBtn.disabled = true;
-    recognition.start();
-  };
-
-  recognition.onstart = () => {
-    finalTranscript = '';
-    voiceBtn.classList.add('recording');
-  };
-
-  recognition.onresult = (event) => {
-    let interimTranscript = '';
-
-    for (let i = event.resultIndex; i < event.results.length; i++) {
-      const transcript = (event.results[i][0].transcript ?? '').toString();
-
-      if (event.results[i].isFinal) {
-        finalTranscript += transcript + ' ';
-      } else {
-        interimTranscript += transcript;
-      }
-    }
-
-    const inputEl = document.getElementById('user-input');
-
-    const displayText = (finalTranscript + interimTranscript).trim();
-    inputEl.value = displayText || '';
-
-    if (interimTranscript.length > 0) {
-      inputEl.classList.add('interim');
-    } else {
-      inputEl.classList.remove('interim');
-    }
-  };
-
-  recognition.onerror = (e) => console.error(e);
-
-  recognition.onend = () => {
-    voiceBtn.disabled = false;
-    voiceBtn.classList.remove('recording');
-
-    const finalText = (finalTranscript ?? '').trim();
-
-    if (finalText.length > 0) {
-      const inputEl = document.getElementById('user-input');
-      inputEl.value = finalText;
-      inputEl.classList.remove('interim');
-
-      sendMessage();
-    }
-  };
-} else {
-  voiceBtn.disabled = true;
-}
-
-// ================================
-// Conversation UI
-// ================================
-function renderConversations() {
-  const list = document.getElementById('conversations-list');
-  list.innerHTML = '';
-
-  const convs = loadConversations();
-  const currentIdx = getCurrentConvIdx();
-
-  convs.forEach((conv, idx) => {
-    const li = document.createElement('li');
-    li.textContent = conv.name;
-    li.style.cursor = 'pointer';
-
-    if (idx === currentIdx) li.classList.add('selected');
-
-    li.onclick = () => loadConversation(idx);
-
-    list.appendChild(li);
-  });
-}
-
-function loadConversation(idx) {
-  const convs = loadConversations();
-  const conv = convs[idx];
-  if (!conv) return;
-
-  const chat = document.getElementById('chat-history');
-  chat.innerHTML = '';
-
-  conv.messages.forEach(m =>
-    appendMessage((m.text ?? '').toString(), m.sender)
-  );
-
-  setCurrentConvIdx(idx);
-  renderConversations();
-}
-
-function storeCurrentConversation() {
-  const idx = getCurrentConvIdx();
-  const chat = document.getElementById('chat-history');
-
-  const msgs = Array.from(chat.children).map(el => ({
-    sender: el.classList.contains('user') ? 'user' : 'ai',
-    text: (el.textContent ?? '').toString()
-  }));
-
-  const convs = loadConversations();
-  const name = 'Chat ' + new Date().toLocaleString();
-
-  if (idx !== null && convs[idx]) {
-    convs[idx] = { name, messages: msgs };
-  } else {
-    convs.push({ name, messages: msgs });
-    setCurrentConvIdx(convs.length - 1);
-  }
-
-  saveConversations(convs);
 }
 
 // ================================
@@ -412,28 +487,3 @@ document.getElementById('user-input').addEventListener('keydown', (e) => {
     sendMessage();
   }
 });
-
-document.getElementById('new-conversation').onclick = () => {
-  storeCurrentConversation();
-
-  const convs = loadConversations();
-  const name = 'Chat ' + new Date().toLocaleString();
-
-  convs.push({ name, messages: [] });
-  setCurrentConvIdx(convs.length - 1);
-
-  saveConversations(convs);
-  document.getElementById('chat-history').innerHTML = '';
-};
-
-const sidebar = document.getElementById('conversations-sidebar');
-sidebar.style.display = 'none';
-
-document.getElementById('conversations-btn').onclick = () => {
-  if (sidebar.style.display === 'none') {
-    renderConversations();
-    sidebar.style.display = 'block';
-  } else {
-    sidebar.style.display = 'none';
-  }
-};
