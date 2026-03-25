@@ -235,6 +235,12 @@ async function classify(input) {
 
 console.log(bestScore);
   if (bestType === "WEB_SEARCH" && bestScore > 0.52) {
+      q = clean(input);
+      const query = encodeURIComponent(q);
+      const url = `https://www.google.com/search?q=${q}`;
+
+      window.open(url, "_blank"); // opens new tab
+      
     return `[WEB_SEARCH] "${clean(input)}"`;
   }
 
@@ -450,35 +456,182 @@ function setCurrentConvIdx(idx) {
   localStorage.setItem(currentConvIdxKey, idx);
 }
 
+// Scroll chat to bottom
+function scrollToBottom() {
+  const chat = document.getElementById('chat-history');
+  if (chat) chat.scrollTop = chat.scrollHeight;
+}
+
+// Focus the input box
+function focusInput() {
+  const input = document.getElementById('user-input');
+  if (input) input.focus();
+}
+
 // ================================
 // Send Message (ROUTER ONLY)
 // ================================
+
+// ================================
+// Events
+// ================================
+
+// Conversation state
+let conversations = loadConversations();
+if (conversations.length === 0) {
+  // initialize with one empty conversation
+  conversations.push({id: Date.now(), messages: []});
+  saveConversations(conversations);
+}
+let currentConvIdx = getCurrentConvIdx();
+if (currentConvIdx === null || currentConvIdx >= conversations.length) {
+  currentConvIdx = 0;
+  setCurrentConvIdx(currentConvIdx);
+}
+
+function renderChatHistory() {
+  const chat = document.getElementById('chat-history');
+  chat.innerHTML = '';
+  const conv = conversations[currentConvIdx];
+  if (conv) {
+    conv.messages.forEach(msg => {
+      appendMessage(msg.text, msg.sender);
+    });
+  }
+  scrollToBottom();
+}
+
+function renderConversationsList() {
+  const list = document.getElementById('conversations-list');
+  list.innerHTML = '';
+  conversations.forEach((conv, idx) => {
+    const li = document.createElement('li');
+    li.textContent = conv.messages.length ? conv.messages[0].text.substring(0, 20) + '...' : 'Empty';
+    li.style.cursor = 'pointer';
+    li.onclick = () => {
+      currentConvIdx = idx;
+      setCurrentConvIdx(idx);
+      renderChatHistory();
+      renderConversationsList();
+      scrollToBottom();
+      focusInput();
+    };
+    if (idx === currentConvIdx) {
+      li.classList.add('selected');
+    } else {
+      li.classList.remove('selected');
+    }
+    list.appendChild(li);
+  });
+}
+
+function deleteConversation(idx) {
+  if (idx < 0 || idx >= conversations.length) return;
+  conversations.splice(idx, 1);
+  if (conversations.length === 0) {
+    conversations.push({ id: Date.now(), messages: [] });
+  }
+  if (currentConvIdx >= conversations.length) currentConvIdx = conversations.length - 1;
+  setCurrentConvIdx(currentConvIdx);
+  renderChatHistory();
+  renderConversationsList();
+  saveConversations(conversations);
+}
+
+function deleteAllConversations() {
+  if (!confirm('Delete all conversations?')) return;
+  conversations = [];
+  conversations.push({ id: Date.now(), messages: [] });
+  currentConvIdx = 0;
+  setCurrentConvIdx(currentConvIdx);
+  renderChatHistory();
+  renderConversationsList();
+  saveConversations(conversations);
+}
+
+// Attach delete button listeners after renderConversationsList definition
+const deleteConvBtn = document.getElementById('delete-conv');
+if (deleteConvBtn) {
+  deleteConvBtn.onclick = () => deleteConversation(currentConvIdx);
+}
+const deleteAllBtn = document.getElementById('delete-all');
+if (deleteAllBtn) {
+  deleteAllBtn.onclick = deleteAllConversations;
+}
+
+// Update sendMessage to store messages
 async function sendMessage() {
   const inputEl = document.getElementById('user-input');
   const userInput = (inputEl.value ?? '').toString().trim();
   if (!userInput) return;
 
+  // Append to UI and store
   appendMessage(userInput, 'user');
+  conversations[currentConvIdx].messages.push({sender: 'user', text: userInput});
+  saveConversations(conversations);
+
   inputEl.value = '';
-
   appendMessage('...', 'ai');
-
   try {
     const result = await classify(userInput);
-
     const chat = document.getElementById('chat-history');
     chat.lastChild.textContent = result;
-
+    conversations[currentConvIdx].messages.push({sender: 'ai', text: result});
+    saveConversations(conversations);
+    scrollToBottom();
   } catch (err) {
     console.error(err);
     const chat = document.getElementById('chat-history');
     chat.lastChild.textContent = 'Error.';
+    conversations[currentConvIdx].messages.push({sender: 'ai', text: 'Error.'});
+    saveConversations(conversations);
+    scrollToBottom();
   }
+  focusInput();
 }
 
-// ================================
-// Events
-// ================================
+// New conversation button
+document.getElementById('new-conversation').onclick = () => {
+  // Reuse existing empty conversation if any, otherwise create a new one
+  const emptyIdx = conversations.findIndex(c => c.messages.length === 0);
+  if (emptyIdx !== -1) {
+    // Update timestamp on reused conversation
+    conversations[emptyIdx].id = Date.now();
+    currentConvIdx = emptyIdx;
+    setCurrentConvIdx(currentConvIdx);
+    renderChatHistory();
+    renderConversationsList();
+    // Persist the updated timestamp
+    saveConversations(conversations);
+    scrollToBottom();
+    focusInput();
+    return;
+  }
+  const newConv = {id: Date.now(), messages: []};
+  conversations.push(newConv);
+  currentConvIdx = conversations.length - 1;
+  setCurrentConvIdx(currentConvIdx);
+  renderChatHistory();
+  renderConversationsList();
+  saveConversations(conversations);
+  scrollToBottom();
+  focusInput();
+};
+
+// Conversations sidebar toggle
+document.getElementById('conversations-btn').onclick = () => {
+  const sidebar = document.getElementById('conversations-sidebar');
+  if (sidebar.style.display === 'none') {
+    renderConversationsList();
+    sidebar.style.display = 'block';
+  } else {
+    sidebar.style.display = 'none';
+  }
+};
+
+// Initial render
+renderChatHistory();
+
 document.getElementById('send-button').onclick = sendMessage;
 
 document.getElementById('user-input').addEventListener('keydown', (e) => {
