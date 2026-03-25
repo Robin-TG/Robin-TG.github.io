@@ -7,6 +7,13 @@
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+<div id="loading-overlay" style="position:fixed;margin-top:6rem;left:20%;width:60%;height:100%;background:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:1000;">
+    <span style="font-size:1.5rem;margin-bottom:1rem;">Loading...</span>
+        <header style="display:none;" id="app-header">
+            <h1>Green Sieve</h1>
+        </header>
+  <progress id="loading-bar" max="100" value="0"></progress>
+</div>
     <div class="container">
         <header>
             <h1>Green Sieve</h1>

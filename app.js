@@ -3,6 +3,35 @@
 // ================================
 const EMBED_MODEL = "Xenova/paraphrase-multilingual-MiniLM-L12-v2";
 
+// UI helpers for loading
+function disableAllInputs() {
+  const ids = ['user-input', 'send-button', 'voice-input', 'select-image', 'image-selector', 'new-conversation', 'conversations-btn'];
+  ids.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.disabled = true;
+  });
+}
+
+function enableAllInputs() {
+  const ids = ['user-input', 'send-button', 'voice-input', 'select-image', 'image-selector', 'new-conversation', 'conversations-btn'];
+  ids.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.disabled = false;
+  });
+}
+
+function updateProgress(p) {
+  const prog = document.getElementById('loading-bar');
+  if (prog && Number.isFinite(p.progress)) prog.value = Math.round(p.progress);
+}
+
+function hideOverlay() {
+  // Show main header after loading completes
+  const overlay = document.getElementById('loading-overlay');
+  if (overlay) overlay.style.display = 'none';
+}
+
+
 let embedder = null;
 let intentVectors = null;
 let loadingPromise = null;
@@ -63,7 +92,7 @@ async function initRouter() {
       EMBED_MODEL,
       {
         dtype: "q4",
-        progress_callback: (p) => console.log("Loading router:", p)
+        progress_callback: (p) => { console.log("Loading router:", p); updateProgress(p); }
       }
     );
 
@@ -633,6 +662,15 @@ document.getElementById('conversations-btn').onclick = () => {
 renderChatHistory();
 
 document.getElementById('send-button').onclick = sendMessage;
+
+(async () => {
+  disableAllInputs();
+  try {
+    await initRouter();
+    enableAllInputs();
+    hideOverlay();
+  } catch(e){ console.error('Failed to load model', e); }
+})();
 
 document.getElementById('user-input').addEventListener('keydown', (e) => {
   if (e.key === 'Enter') {
