@@ -17,6 +17,7 @@ import {
   saveSpeechSettings,
 } from './storage.js';
 import { speak, stopSpeaking, getVoices } from './speechSynthesis.js';
+import SpeechVisualizer from './SpeechVisualizer.js';
 import type { Conversation, Message, SpeechSettings, VoiceInfo } from './types.js';
 
 const SPEECH_ERROR_HINTS: Record<string, string> = {
@@ -540,15 +541,20 @@ export default function App() {
                       <span>🖼️</span>
                     </button>
                     {isSpeaking && (
-                      <button
-                        type="button"
-                        id="stop-speech"
-                        className="btn btn-icon"
-                        title="Stop speech"
-                        onClick={handleStopSpeech}
-                      >
-                        <span>⏹️</span>
-                      </button>
+                      <>
+                        <button
+                          type="button"
+                          id="stop-speech"
+                          className="btn btn-icon"
+                          title="Stop speech"
+                          onClick={handleStopSpeech}
+                        >
+                          <span>⏹️</span>
+                        </button>
+                        <div className="speech-visualizer-container">
+                          <SpeechVisualizer isVisible={isSpeaking} />
+                        </div>
+                      </>
                     )}
                   </div>
 
