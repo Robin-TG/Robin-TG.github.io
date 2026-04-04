@@ -16,7 +16,7 @@ export function getVoices(): VoiceInfo[] {
   }));
 }
 
-export function speak(text: string, voiceUri: string): void {
+export function speak(text: string, voiceUri: string, onEnd?: () => void): void {
   if (!window.speechSynthesis || !text) return;
   window.speechSynthesis.cancel();
   const utterance = new SpeechSynthesisUtterance(text);
@@ -24,6 +24,9 @@ export function speak(text: string, voiceUri: string): void {
   const voice = voices.find((v) => v.voiceURI === voiceUri);
   if (voice) {
     utterance.voice = voice;
+  }
+  if (onEnd) {
+    utterance.onend = onEnd;
   }
   window.speechSynthesis.speak(utterance);
 }

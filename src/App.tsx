@@ -59,6 +59,7 @@ export default function App() {
   const [silenceTimeoutMs, setSilenceTimeoutMs] = useState(loadSilenceTimeout());
   const [speechSettings, setSpeechSettings] = useState<SpeechSettings>(loadSpeechSettings);
   const [availableVoices, setAvailableVoices] = useState<VoiceInfo[]>([]);
+  const [isSpeaking, setIsSpeaking] = useState(false);
   const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
   const [sidebarTop, setSidebarTop] = useState(0);
   const silenceTimeoutRef = useRef<number>(silenceTimeoutMs);
@@ -164,7 +165,8 @@ export default function App() {
           return next;
         });
         if (speechSettings.enabled) {
-          speak(result, speechSettings.voiceUri);
+          setIsSpeaking(true);
+          speak(result, speechSettings.voiceUri, () => setIsSpeaking(false));
         }
       } catch (err) {
         console.error(err);
@@ -176,7 +178,8 @@ export default function App() {
           return next;
         });
         if (speechSettings.enabled) {
-          speak('Error.', speechSettings.voiceUri);
+          setIsSpeaking(true);
+          speak('Error.', speechSettings.voiceUri, () => setIsSpeaking(false));
         }
       } finally {
         setIsClassifying(false);
@@ -430,6 +433,11 @@ export default function App() {
     saveSpeechSettings(newSettings);
   }, [speechSettings]);
 
+  const handleStopSpeech = useCallback(() => {
+    stopSpeaking();
+    setIsSpeaking(false);
+  }, []);
+
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -531,6 +539,17 @@ export default function App() {
                     >
                       <span>🖼️</span>
                     </button>
+                    {isSpeaking && (
+                      <button
+                        type="button"
+                        id="stop-speech"
+                        className="btn btn-icon"
+                        title="Stop speech"
+                        onClick={handleStopSpeech}
+                      >
+                        <span>⏹️</span>
+                      </button>
+                    )}
                   </div>
 
                   {speechError && (
