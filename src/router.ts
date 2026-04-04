@@ -66,6 +66,12 @@ export function setRouterProgressHandler(fn: RouterProgressHandler): void {
   routerProgressHandler = typeof fn === 'function' ? fn : null;
 }
 
+export interface FileProgress {
+  file?: string;
+  percent: number;
+  complete?: boolean;
+}
+
 export function percentFromRouterProgress(p: unknown): number | null {
   if (p == null || typeof p !== 'object') return null;
   const obj = p as Record<string, unknown>;
@@ -78,6 +84,14 @@ export function percentFromRouterProgress(p: unknown): number | null {
     return Math.min(100, Math.round((obj.loaded / obj.total) * 100));
   }
   return null;
+}
+
+export function extractFileProgress(p: unknown): FileProgress {
+  if (p == null || typeof p !== 'object') return { percent: 0 };
+  const obj = p as Record<string, unknown>;
+  const percent = percentFromRouterProgress(p) ?? 0;
+  const file = typeof obj.file === 'string' ? obj.file : undefined;
+  return { file, percent };
 }
 
 async function ensureTransformersLoaded(): Promise<void> {

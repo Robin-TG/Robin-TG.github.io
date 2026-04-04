@@ -3,8 +3,9 @@ import type { ChangeEvent, KeyboardEvent, RefObject } from 'react';
 import {
   classify,
   initRouter,
-  percentFromRouterProgress,
+  extractFileProgress,
   setRouterProgressHandler,
+  type FileProgress,
 } from './router.js';
 import {
   ensureInitialConversations,
@@ -44,7 +45,7 @@ export default function App() {
   const [userInput, setUserInput] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [routerReady, setRouterReady] = useState(false);
-  const [loadProgress, setLoadProgress] = useState(0);
+  const [fileProgresses, setFileProgresses] = useState<FileProgress[]>([]);
   const [inputsLocked, setInputsLocked] = useState(true);
   const [isClassifying, setIsClassifying] = useState(false);
   const [interimSpeech, setInterimSpeech] = useState(false);
@@ -53,7 +54,10 @@ export default function App() {
   const [speechError, setSpeechError] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [silenceTimeoutMs, setSilenceTimeoutMs] = useState(loadSilenceTimeout());
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
+  const [sidebarTop, setSidebarTop] = useState(0);
   const silenceTimeoutRef = useRef<number>(silenceTimeoutMs);
+  const headerRef = useRef<HTMLDivElement>(null);
 
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const recognizingRef = useRef(false);
@@ -76,8 +80,19 @@ export default function App() {
 
   useLayoutEffect(() => {
     setRouterProgressHandler((p) => {
-      const pct = percentFromRouterProgress(p);
-      if (pct != null) setLoadProgress(pct);
+      const { file, percent } = extractFileProgress(p);
+      if (file) {
+        setFileProgresses((prev) => {
+          const existingIdx = prev.findIndex((fp) => fp.file === file);
+          if (existingIdx >= 0) {
+            if (prev[existingIdx].complete) return prev;
+            const updated = [...prev];
+            updated[existingIdx] = { file, percent, complete: percent >= 100 };
+            return updated;
+          }
+          return [...prev, { file, percent, complete: percent >= 100 }];
+        });
+      }
     });
     return () => setRouterProgressHandler(null);
   }, []);
@@ -99,6 +114,12 @@ export default function App() {
     return () => {
       cancelled = true;
     };
+  }, []);
+
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
   }, []);
 
   const sendMessageWithText = useCallback(
@@ -325,8 +346,9 @@ export default function App() {
   const selectConversation = useCallback((idx: number) => {
     persistCurrentIdx(idx);
     setCurrentConvIdx(idx);
+    if (isMobile) setSidebarOpen(false);
     textareaRef.current?.focus();
-  }, []);
+  }, [isMobile]);
 
   const deleteConversation = useCallback(() => {
     if (currentConvIdx < 0 || currentConvIdx >= conversations.length) return;
@@ -337,7 +359,8 @@ export default function App() {
     let idx = currentConvIdx;
     if (idx >= next.length) idx = next.length - 1;
     applyConversations(next, idx);
-  }, [conversations, currentConvIdx, applyConversations]);
+    if (isMobile) setSidebarOpen(false);
+  }, [conversations, currentConvIdx, applyConversations, isMobile]);
 
   const deleteAllConversations = useCallback(() => {
     if (!confirm('Delete all conversations?')) return;
@@ -345,8 +368,14 @@ export default function App() {
   }, [applyConversations]);
 
   const toggleSidebar = useCallback(() => {
-    setSidebarOpen((o) => !o);
-  }, []);
+    setSidebarOpen((o) => {
+      if (!o && isMobile && headerRef.current) {
+        const rect = headerRef.current.getBoundingClientRect();
+        setSidebarTop(rect.bottom + 10);
+      }
+      return !o;
+    });
+  }, [isMobile]);
 
   const toggleSettings = useCallback(() => {
     setSettingsOpen((o) => !o);
@@ -374,15 +403,20 @@ export default function App() {
     <>
       {!routerReady && (
         <div className="loading-overlay">
-          <span>Loading...</span>
-          <progress max={100} value={loadProgress} />
+          <span>Loading model...</span>
+          {fileProgresses.map((fp, i) => (
+            <div key={i} className="loading-file">
+              <span className="loading-filename">{fp.file || 'Loading...'}</span>
+              <progress max={100} value={fp.percent} />
+            </div>
+          ))}
         </div>
       )}
 
       <div className="container">
         <div className={`container-layout${sidebarOpen ? ' container-layout--with-panel' : ''}`}>
           <div className="container-main">
-            <header>
+            <header ref={headerRef}>
               <h1>Green Sieve</h1>
               <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                 <button
@@ -498,6 +532,7 @@ export default function App() {
             <aside
               id="conversations-sidebar"
               className="conversations-sidebar"
+              style={isMobile ? { top: sidebarTop } : undefined}
               aria-label="Conversations"
             >
               <h3>Conversations</h3>

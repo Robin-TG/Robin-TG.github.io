@@ -7,6 +7,7 @@ vi.mock('./router.ts', () => ({
   classify: vi.fn(() => Promise.resolve('[LLM_QUESTION] "mocked"')),
   setRouterProgressHandler: vi.fn(),
   percentFromRouterProgress: vi.fn(() => null),
+  extractFileProgress: vi.fn(() => ({ percent: 0 })),
 }));
 
 import App from './App.tsx';
@@ -21,9 +22,9 @@ describe('App', () => {
 
   it('shows title after router finishes loading', async () => {
     render(<App />);
-    expect(screen.getByText('Loading...')).toBeInTheDocument();
+    expect(screen.getByText('Loading model...')).toBeInTheDocument();
     await waitFor(() => {
-      expect(screen.queryByText('Loading...')).not.toBeInTheDocument();
+      expect(screen.queryByText('Loading model...')).not.toBeInTheDocument();
     });
     expect(screen.getAllByRole('heading', { name: /green sieve/i })[0]).toBeInTheDocument();
   });
@@ -31,7 +32,7 @@ describe('App', () => {
   it('sends a message and shows classifier output', async () => {
     const user = userEvent.setup();
     render(<App />);
-    await waitFor(() => expect(screen.queryByText('Loading...')).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByText('Loading model...')).not.toBeInTheDocument());
 
     const input = screen.getAllByPlaceholderText(/type your message/i)[0];
     await user.type(input, 'hello world');
