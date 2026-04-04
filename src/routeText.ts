@@ -1,4 +1,4 @@
-export function clean(text) {
+export function clean(text: string): string {
   let t = text.toLowerCase();
   t = t.replace(/\bkl\b/g, 'kuala lumpur').replace(/\bbtc\b/g, 'bitcoin');
   t = t.replace(/\b(what is|what's|what are|tell me|show me|can you|please|you know|sort of)\b/gi, '');
@@ -36,7 +36,7 @@ export function clean(text) {
   return tokens.join(' ');
 }
 
-export function condense(text) {
+export function condense(text: string): string {
   let t = text.toLowerCase();
   t = t.replace(/\bkl\b/g, 'kuala lumpur').replace(/\bbtc\b/g, 'bitcoin');
   const phrases = [

@@ -7,7 +7,7 @@ import {
   setCurrentConvIdx,
   loadSilenceTimeout,
   saveSilenceTimeout,
-} from './storage.js';
+} from './storage.ts';
 
 const CONV_KEY = 'sieveConversations';
 const IDX_KEY = 'sieveCurrentConvIdx';
@@ -53,7 +53,7 @@ describe('storage', () => {
     expect(conversations[0].messages).toEqual([]);
     expect(conversations[0].id).toBe(99_000);
     expect(currentConvIdx).toBe(0);
-    expect(JSON.parse(localStorage.getItem(CONV_KEY))).toHaveLength(1);
+    expect(JSON.parse(localStorage.getItem(CONV_KEY) ?? '')).toHaveLength(1);
     expect(localStorage.getItem(IDX_KEY)).toBe('0');
     vi.restoreAllMocks();
   });

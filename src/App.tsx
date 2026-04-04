@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import type { ChangeEvent, KeyboardEvent, RefObject } from 'react';
 import {
   classify,
   initRouter,
@@ -12,9 +13,9 @@ import {
   loadSilenceTimeout,
   saveSilenceTimeout,
 } from './storage.js';
+import type { Conversation, Message } from './types.js';
 
-/** Chrome/Edge send audio to Google; `network` means that request failed (offline, VPN, firewall, etc.). */
-const SPEECH_ERROR_HINTS = {
+const SPEECH_ERROR_HINTS: Record<string, string> = {
   network:
     'Voice needs an internet connection. This browser sends audio to Google speech services. Check your network, VPN, corporate firewall, or try another connection.',
   'not-allowed': 'Microphone access was denied. Allow the microphone for this site in your browser settings.',
@@ -23,10 +24,12 @@ const SPEECH_ERROR_HINTS = {
   'audio-capture': 'No microphone was found or it could not be opened.',
 };
 
-/** After speech has started, stop (and send) when there is no new audio for this long. */
+interface UseChatScrollReturn {
+  ref: RefObject<HTMLDivElement | null>;
+}
 
-function useChatScroll(deps) {
-  const ref = useRef(null);
+function useChatScroll(deps: unknown[]): UseChatScrollReturn {
+  const ref = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     const el = ref.current;
     if (el) el.scrollTop = el.scrollHeight;
@@ -36,7 +39,7 @@ function useChatScroll(deps) {
 
 export default function App() {
   const initial = useMemo(() => ensureInitialConversations(), []);
-  const [conversations, setConversations] = useState(initial.conversations);
+  const [conversations, setConversations] = useState<Conversation[]>(initial.conversations);
   const [currentConvIdx, setCurrentConvIdx] = useState(initial.currentConvIdx);
   const [userInput, setUserInput] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -47,25 +50,24 @@ export default function App() {
   const [interimSpeech, setInterimSpeech] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [voiceSupported, setVoiceSupported] = useState(true);
-  const [speechError, setSpeechError] = useState(null);
+  const [speechError, setSpeechError] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [silenceTimeoutMs, setSilenceTimeoutMs] = useState(loadSilenceTimeout());
-  const silenceTimeoutRef = useRef(silenceTimeoutMs);
+  const silenceTimeoutRef = useRef<number>(silenceTimeoutMs);
 
-  const recognitionRef = useRef(null);
-  /** Sync with the API — React state lags behind onstart/onend and breaks stop/start. */
+  const recognitionRef = useRef<SpeechRecognition | null>(null);
   const recognizingRef = useRef(false);
-  const silenceTimerRef = useRef(null);
+  const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const finalTranscriptRef = useRef('');
-  const imageInputRef = useRef(null);
-  const textareaRef = useRef(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const conv = conversations[currentConvIdx];
-  const messages = conv?.messages ?? [];
+  const messages: Message[] = conv?.messages ?? [];
 
   const chatRef = useChatScroll([messages, isClassifying, currentConvIdx]);
 
-  const applyConversations = useCallback((next, idx) => {
+  const applyConversations = useCallback((next: Conversation[], idx: number) => {
     saveConversations(next);
     persistCurrentIdx(idx);
     setConversations(next);
@@ -100,7 +102,7 @@ export default function App() {
   }, []);
 
   const sendMessageWithText = useCallback(
-    async (rawText) => {
+    async (rawText: string) => {
       const text = (rawText ?? '').trim();
       if (!text || inputsLocked || isClassifying) return;
 
@@ -108,7 +110,7 @@ export default function App() {
 
       setConversations((prev) => {
         const next = prev.map((c, i) =>
-          i === convIdx ? { ...c, messages: [...c.messages, { sender: 'user', text }] } : c
+          i === convIdx ? { ...c, messages: [...c.messages, { sender: 'user' as const, text }] } : c
         );
         saveConversations(next);
         return next;
@@ -120,7 +122,7 @@ export default function App() {
         const result = await classify(text);
         setConversations((prev) => {
           const next = prev.map((c, i) =>
-            i === convIdx ? { ...c, messages: [...c.messages, { sender: 'ai', text: result }] } : c
+            i === convIdx ? { ...c, messages: [...c.messages, { sender: 'ai' as const, text: result }] } : c
           );
           saveConversations(next);
           return next;
@@ -129,7 +131,7 @@ export default function App() {
         console.error(err);
         setConversations((prev) => {
           const next = prev.map((c, i) =>
-            i === convIdx ? { ...c, messages: [...c.messages, { sender: 'ai', text: 'Error.' }] } : c
+            i === convIdx ? { ...c, messages: [...c.messages, { sender: 'ai' as const, text: 'Error.' }] } : c
           );
           saveConversations(next);
           return next;
@@ -160,7 +162,7 @@ export default function App() {
       }
     };
 
-    const scheduleAutoStopOnSilence = (currentRec) => {
+    const scheduleAutoStopOnSilence = (currentRec: SpeechRecognition) => {
       clearSilenceTimer();
       silenceTimerRef.current = window.setTimeout(() => {
         silenceTimerRef.current = null;
@@ -190,7 +192,7 @@ export default function App() {
       setSpeechError(null);
     };
 
-    rec.onresult = (event) => {
+    rec.onresult = (event: SpeechRecognitionEvent) => {
       let interim = '';
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const t = (event.results[i][0].transcript ?? '').toString();
@@ -206,7 +208,7 @@ export default function App() {
       scheduleAutoStopOnSilence(rec);
     };
 
-    rec.onerror = (e) => {
+    rec.onerror = (e: SpeechRecognitionErrorEvent) => {
       clearSilenceTimer();
       recognizingRef.current = false;
       setIsRecording(false);
@@ -241,12 +243,11 @@ export default function App() {
         setTimeout(() => sendMessageWithTextRef.current(finalText), 50);
       }
       finalTranscriptRef.current = '';
-      // Chromium: cannot call start() again on the same instance after onend.
       replaceWithFreshInstance();
     };
 
     return rec;
-  }, [setSpeechError]);
+  }, []);
 
   useEffect(() => {
     if (!('SpeechRecognition' in window || 'webkitSpeechRecognition' in window)) {
@@ -321,7 +322,7 @@ export default function App() {
     textareaRef.current?.focus();
   }, [conversations, applyConversations]);
 
-  const selectConversation = useCallback((idx) => {
+  const selectConversation = useCallback((idx: number) => {
     persistCurrentIdx(idx);
     setCurrentConvIdx(idx);
     textareaRef.current?.focus();
@@ -351,7 +352,7 @@ export default function App() {
     setSettingsOpen((o) => !o);
   }, []);
 
-  const handleSilenceTimeoutChange = useCallback((e) => {
+  const handleSilenceTimeoutChange = useCallback((e: ChangeEvent<HTMLInputElement>) => {
     const val = parseInt(e.target.value, 10);
     if (!isNaN(val) && val >= 500 && val <= 10000) {
       setSilenceTimeoutMs(val);
@@ -360,7 +361,7 @@ export default function App() {
     }
   }, []);
 
-  const onKeyDown = (e) => {
+  const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       sendMessage();

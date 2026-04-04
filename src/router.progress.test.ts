@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { percentFromRouterProgress } from './router.js';
+import { percentFromRouterProgress } from './router.ts';
 
 describe('percentFromRouterProgress', () => {
   it('returns null for non-objects', () => {

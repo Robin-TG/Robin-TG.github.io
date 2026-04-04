@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { clean, condense } from './routeText.js';
+import { clean, condense } from './routeText.ts';
 
 describe('clean (web search query)', () => {
   it('expands btc and kl', () => {
