@@ -1,58 +1,12 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Green Sieve</title>
-    <link rel="stylesheet" href="styles.css">
-</head>
-<body>
-<div id="loading-overlay" style="position:fixed;margin-top:6rem;left:20%;width:60%;height:100%;background:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:1000;">
-    <span style="font-size:1.5rem;margin-bottom:1rem;">Loading...</span>
-        <header style="display:none;" id="app-header">
-            <h1>Green Sieve</h1>
-        </header>
-  <progress id="loading-bar" max="100" value="0"></progress>
-</div>
-    <div class="container">
-        <header>
-            <h1>Green Sieve</h1>
-            <button id="new-conversation" class="btn">New Conversation</button>
-            <button id="conversations-btn" class="btn">Conversations</button>
-        </header>
-
-        <div class="main-content">
-            <div class="chat-container">
-                <div id="chat-history" class="chat-history"></div>
-                <div class="input-area">
-                    <div class="input-controls">
-                        <button id="voice-input" class="btn btn-icon" title="Voice Input">
-                            <span>🎤</span>
-                        </button>
-                        <input type="file" id="image-selector" accept="image/*" style="display: none;">
-                        <button id="select-image" class="btn btn-icon" title="Select Image">
-                            <span>🖼️</span>
-                        </button>
-                    </div>
-
-                    <div id="conversations-sidebar" style="display:none; position:fixed; top:0; right:0; width:250px; height:100%; background:#fff; border-left:1px solid #ddd; overflow-y:auto; padding:10px; z-index:1000;">
-                        <h3>Conversations</h3>
-                        <ul id="conversations-list" style="list-style:none; padding:0;"></ul>
-                        <div class="sidebar-actions">
-                          <button id="delete-conv" class="btn">Delete Selected</button>
-                          <button id="delete-all" class="btn">Delete All</button>
-                        </div>
-                    </div>
-
-                    <div class="text-input-container">
-                        <textarea id="user-input" placeholder="Type your message here..."></textarea>
-                        <button id="send-button" class="btn">Send</button>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-        <script src="app.js" defer></script>
-</body>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
 </html>
