@@ -1,7 +1,13 @@
 export function clean(text: string): string {
-  let t = text.toLowerCase();
+  let t = text.toLowerCase().replace(/['']/g, "'");
   t = t.replace(/\bkl\b/g, 'kuala lumpur').replace(/\bbtc\b/g, 'bitcoin');
   t = t.replace(/\b(what is|what's|what are|tell me|show me|can you|please|you know|sort of)\b/gi, '');
+  const contractions = [
+    "what's", "that's", "who's", "it's", "there's", "here's",
+    "who'll", "that'll", "what'll", "what're", "who've", "we'll", "they'll",
+  ];
+  let regex = new RegExp(`\\b(${contractions.join('|')})\\b`, 'gi');
+  t = t.replace(regex, '');
   t = t.replace(/\b(what|which|who|when|where|why|how)\b/gi, '');
   t = t.replace(/\b(is|are|was|were|be|been|being)\b/gi, '');
   t = t.replace(/\b(going|gonna|will|would|should|could)\b/gi, '');
@@ -37,8 +43,9 @@ export function clean(text: string): string {
 }
 
 export function condense(text: string): string {
-  let t = text.toLowerCase();
+  let t = text.toLowerCase().replace(/['']/g, "'");
   t = t.replace(/\bkl\b/g, 'kuala lumpur').replace(/\bbtc\b/g, 'bitcoin');
+  t = t.replace(/([^\p{L}])\s+s\b/gu, '$1');
   const phrases = [
     'can you',
     'could you',
@@ -51,6 +58,12 @@ export function condense(text: string): string {
     'is it possible to',
   ];
   let regex = new RegExp(`\\b(${phrases.join('|')})\\b`, 'gi');
+  t = t.replace(regex, '');
+  const contractions = [
+    "what's", "that's", "who's", "it's", "there's", "here's", "who'll", "that'll",
+    "what'll", "what're", "that's", "who've",
+  ];
+  regex = new RegExp(`\\b(${contractions.join('|')})\\b`, 'gi');
   t = t.replace(regex, '');
   const verbs = ['give', 'provide', 'show', 'list', 'describe', 'elaborate', 'talk about'];
   regex = new RegExp(`\\b(${verbs.join('|')})\\b`, 'gi');
@@ -67,6 +80,11 @@ export function condense(text: string): string {
     'a little',
     'kind of',
     'sort of',
+    'll',
+    're',
+    've',
+    'd',
+    't',
   ];
   regex = new RegExp(`\\b(${filler.join('|')})\\b`, 'gi');
   t = t.replace(regex, '');

@@ -424,6 +424,28 @@ h1 {
   width: 120px;
 }
 
+.settings-field select {
+  padding: 8px 12px;
+  border: 1px solid #ddd;
+  border-radius: 5px;
+  font-size: 1rem;
+  width: 100%;
+  max-width: 300px;
+  background: white;
+}
+
+.settings-field input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  margin-right: 8px;
+}
+
+.settings-field label:has(input[type="checkbox"]) {
+  flex-direction: row;
+  align-items: center;
+  font-weight: normal;
+}
+
 .settings-hint {
   margin-top: 6px;
   font-size: 0.85rem;

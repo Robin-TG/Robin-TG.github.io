@@ -13,8 +13,11 @@ import {
   setCurrentConvIdx as persistCurrentIdx,
   loadSilenceTimeout,
   saveSilenceTimeout,
+  loadSpeechSettings,
+  saveSpeechSettings,
 } from './storage.js';
-import type { Conversation, Message } from './types.js';
+import { speak, stopSpeaking, getVoices } from './speechSynthesis.js';
+import type { Conversation, Message, SpeechSettings, VoiceInfo } from './types.js';
 
 const SPEECH_ERROR_HINTS: Record<string, string> = {
   network:
@@ -54,6 +57,8 @@ export default function App() {
   const [speechError, setSpeechError] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [silenceTimeoutMs, setSilenceTimeoutMs] = useState(loadSilenceTimeout());
+  const [speechSettings, setSpeechSettings] = useState<SpeechSettings>(loadSpeechSettings);
+  const [availableVoices, setAvailableVoices] = useState<VoiceInfo[]>([]);
   const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
   const [sidebarTop, setSidebarTop] = useState(0);
   const silenceTimeoutRef = useRef<number>(silenceTimeoutMs);
@@ -117,6 +122,16 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    const loadVoices = () => {
+      setAvailableVoices(getVoices());
+    };
+    loadVoices();
+    if (window.speechSynthesis) {
+      window.speechSynthesis.onvoiceschanged = loadVoices;
+    }
+  }, []);
+
+  useEffect(() => {
     const handleResize = () => setIsMobile(window.innerWidth < 768);
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
@@ -148,6 +163,9 @@ export default function App() {
           saveConversations(next);
           return next;
         });
+        if (speechSettings.enabled) {
+          speak(result, speechSettings.voiceUri);
+        }
       } catch (err) {
         console.error(err);
         setConversations((prev) => {
@@ -157,12 +175,15 @@ export default function App() {
           saveConversations(next);
           return next;
         });
+        if (speechSettings.enabled) {
+          speak('Error.', speechSettings.voiceUri);
+        }
       } finally {
         setIsClassifying(false);
         textareaRef.current?.focus();
       }
     },
-    [inputsLocked, isClassifying, currentConvIdx]
+    [inputsLocked, isClassifying, currentConvIdx, speechSettings]
   );
 
   const sendMessageWithTextRef = useRef(sendMessageWithText);
@@ -215,11 +236,15 @@ export default function App() {
 
     rec.onresult = (event: SpeechRecognitionEvent) => {
       let interim = '';
-      for (let i = event.resultIndex; i < event.results.length; i++) {
+      let foundFinal = false;
+      for (let i = 0; i < event.results.length; i++) {
         const t = (event.results[i][0].transcript ?? '').toString();
         if (event.results[i].isFinal) {
-          finalTranscriptRef.current += `${t} `;
-        } else {
+          if (!foundFinal) {
+            finalTranscriptRef.current += `${t} `;
+            foundFinal = true;
+          }
+        } else if (!foundFinal) {
           interim += t;
         }
       }
@@ -390,6 +415,21 @@ export default function App() {
     }
   }, []);
 
+  const handleSpeechEnabledChange = useCallback((e: ChangeEvent<HTMLInputElement>) => {
+    const newSettings = { ...speechSettings, enabled: e.target.checked };
+    setSpeechSettings(newSettings);
+    saveSpeechSettings(newSettings);
+    if (!e.target.checked) {
+      stopSpeaking();
+    }
+  }, [speechSettings]);
+
+  const handleVoiceChange = useCallback((e: ChangeEvent<HTMLSelectElement>) => {
+    const newSettings = { ...speechSettings, voiceUri: e.target.value };
+    setSpeechSettings(newSettings);
+    saveSpeechSettings(newSettings);
+  }, [speechSettings]);
+
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -543,7 +583,15 @@ export default function App() {
                     className={idx === currentConvIdx ? 'selected' : ''}
                     onClick={() => selectConversation(idx)}
                   >
-                    {c.messages.length ? `${c.messages[0].text.substring(0, 20)}...` : 'Empty'}
+                    {c.messages.length
+                      ? (() => {
+                          const first = c.messages[0].text;
+                          if (first.length <= 20) return first;
+                          const cutoff = first.lastIndexOf(' ', 20);
+                          const end = cutoff > 10 ? cutoff : 20;
+                          return `${first.substring(0, end)}...`;
+                        })()
+                      : 'Empty'}
                   </li>
                 ))}
               </ul>
@@ -582,6 +630,39 @@ export default function App() {
                 Range: 500-10000 ms.
               </p>
             </div>
+            <div className="settings-field">
+              <label htmlFor="speech-enabled">
+                <input
+                  type="checkbox"
+                  id="speech-enabled"
+                  checked={speechSettings.enabled}
+                  onChange={handleSpeechEnabledChange}
+                />
+                Enable speech output
+              </label>
+              <p className="settings-hint">
+                Read AI responses aloud using text-to-speech.
+              </p>
+            </div>
+            {speechSettings.enabled && (
+              <div className="settings-field">
+                <label htmlFor="voice-select">
+                  Voice
+                  <select
+                    id="voice-select"
+                    value={speechSettings.voiceUri}
+                    onChange={handleVoiceChange}
+                  >
+                    <option value="">Default</option>
+                    {availableVoices.map((v) => (
+                      <option key={v.uri} value={v.uri}>
+                        {v.name} ({v.lang})
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+            )}
             <button type="button" className="btn" onClick={toggleSettings}>
               Close
             </button>

@@ -1,8 +1,14 @@
-import type { InitialConversations } from './types.js';
+import type { InitialConversations, SpeechSettings } from './types.js';
 
 const CONV_KEY = 'sieveConversations';
 const CURRENT_IDX_KEY = 'sieveCurrentConvIdx';
 const SILENCE_TIMEOUT_KEY = 'sieveSilenceTimeoutMs';
+const SPEECH_SETTINGS_KEY = 'sieveSpeechSettings';
+
+export const DEFAULT_SPEECH_SETTINGS: SpeechSettings = {
+  enabled: false,
+  voiceUri: '',
+};
 
 export function loadSilenceTimeout(): number {
   const val = localStorage.getItem(SILENCE_TIMEOUT_KEY);
@@ -46,4 +52,20 @@ export function ensureInitialConversations(): InitialConversations {
     setCurrentConvIdx(currentConvIdx);
   }
   return { conversations, currentConvIdx };
+}
+
+export function loadSpeechSettings(): SpeechSettings {
+  try {
+    const stored = localStorage.getItem(SPEECH_SETTINGS_KEY);
+    if (stored) {
+      return JSON.parse(stored);
+    }
+  } catch {
+    // ignore
+  }
+  return { ...DEFAULT_SPEECH_SETTINGS };
+}
+
+export function saveSpeechSettings(settings: SpeechSettings): void {
+  localStorage.setItem(SPEECH_SETTINGS_KEY, JSON.stringify(settings));
 }

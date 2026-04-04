@@ -14,3 +14,15 @@ export interface InitialConversations {
 }
 
 export type ProgressCallback = (p: unknown) => void;
+
+export interface SpeechSettings {
+  enabled: boolean;
+  voiceUri: string;
+}
+
+export interface VoiceInfo {
+  name: string;
+  lang: string;
+  uri: string;
+  default?: boolean;
+}
