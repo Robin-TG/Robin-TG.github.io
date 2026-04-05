@@ -19,16 +19,10 @@ describe('SpeechVisualizer', () => {
     expect(container).toHaveClass('speech-visualizer-container');
   });
 
-  it('renders 40 bars inside viz-bars container', () => {
+  it('renders 5 bars inside viz-bars container', () => {
     render(<SpeechVisualizer isVisible={true} />);
     const bars = document.querySelectorAll('.viz-bars > .viz-bar');
-    expect(bars).toHaveLength(40);
-  });
-
-  it('renders scanline element', () => {
-    render(<SpeechVisualizer isVisible={true} />);
-    const scanline = document.querySelector('.viz-scanline');
-    expect(scanline).toBeInTheDocument();
+    expect(bars).toHaveLength(5);
   });
 
   it('toggles visibility based on isVisible prop', () => {

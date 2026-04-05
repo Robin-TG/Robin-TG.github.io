@@ -541,20 +541,20 @@ export default function App() {
                       <span>🖼️</span>
                     </button>
                     {isSpeaking && (
-                      <>
-                        <button
-                          type="button"
-                          id="stop-speech"
-                          className="btn btn-icon"
-                          title="Stop speech"
-                          onClick={handleStopSpeech}
-                        >
-                          <span>⏹️</span>
-                        </button>
-                        <div className="speech-visualizer-container">
-                          <SpeechVisualizer isVisible={isSpeaking} />
-                        </div>
-                      </>
+                      <button
+                        type="button"
+                        id="stop-speech"
+                        className="btn btn-icon"
+                        title="Stop speech"
+                        onClick={handleStopSpeech}
+                      >
+                        <span className="stop-icon" />
+                      </button>
+                    )}
+                    {isSpeaking && (
+                      <div className="speech-visualizer-container">
+                        <SpeechVisualizer isVisible={isSpeaking} />
+                      </div>
                     )}
                   </div>
 
