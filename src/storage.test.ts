@@ -32,7 +32,7 @@ describe('storage', () => {
   });
 
   it('saveConversations round-trips', () => {
-    const convs = [{ id: 1, messages: [{ sender: 'user', text: 'hi' }] }];
+    const convs = [{ id: 1, messages: [{ sender: 'user' as const, text: 'hi' }] }];
     saveConversations(convs);
     expect(loadConversations()).toEqual(convs);
   });

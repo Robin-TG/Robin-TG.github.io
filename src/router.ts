@@ -56,7 +56,7 @@ declare global {
 
 let embedder: TransformerPipeline | null = null;
 let intentVectors: IntentVectors | null = null;
-let loadingPromise: Promise<TransformerPipeline | null> | null = null;
+let loadingPromise: Promise<TransformerPipeline> | null = null;
 
 type RouterProgressHandler = ((p: unknown) => void) | null;
 
@@ -97,7 +97,7 @@ export function extractFileProgress(p: unknown): FileProgress {
 async function ensureTransformersLoaded(): Promise<void> {
   if (typeof window !== 'undefined' && window.transformers) return;
 
-  const mod = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers');
+  const mod = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers') as unknown as TransformersModule;
 
   window.transformers = mod;
   const { env } = mod;
@@ -110,7 +110,7 @@ export async function initRouter(): Promise<TransformerPipeline> {
   if (embedder) return embedder;
   if (loadingPromise) return loadingPromise;
 
-  loadingPromise = (async () => {
+  loadingPromise = (async (): Promise<TransformerPipeline> => {
     await ensureTransformersLoaded();
     const { pipeline } = window.transformers!;
 

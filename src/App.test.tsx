@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('./router.ts', () => ({
-  initRouter: vi.fn(() => Promise.resolve({})),
+  initRouter: vi.fn(() => Promise.resolve(() => Promise.resolve({ data: new Float32Array(0) }))),
   classify: vi.fn(() => Promise.resolve('[LLM_QUESTION] "mocked"')),
   setRouterProgressHandler: vi.fn(),
   percentFromRouterProgress: vi.fn(() => null),
@@ -17,7 +17,7 @@ describe('App', () => {
   beforeEach(() => {
     localStorage.clear();
     vi.mocked(router.classify).mockResolvedValue('[LLM_QUESTION] "mocked"');
-    vi.mocked(router.initRouter).mockResolvedValue({});
+    vi.mocked(router.initRouter).mockReturnValue(Promise.resolve(() => Promise.resolve({ data: new Float32Array(0) })));
   });
 
   it('shows title after router finishes loading', async () => {

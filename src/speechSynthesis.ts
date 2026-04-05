@@ -1,11 +1,5 @@
 import type { VoiceInfo } from './types.js';
 
-declare global {
-  interface Window {
-    speechSynthesis: SpeechSynthesis;
-  }
-}
-
 export function getVoices(): VoiceInfo[] {
   if (!window.speechSynthesis) return [];
   return window.speechSynthesis.getVoices().map((v) => ({

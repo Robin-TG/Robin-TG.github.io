@@ -29,11 +29,7 @@ const SPEECH_ERROR_HINTS: Record<string, string> = {
   'audio-capture': 'No microphone was found or it could not be opened.',
 };
 
-interface UseChatScrollReturn {
-  ref: RefObject<HTMLDivElement | null>;
-}
-
-function useChatScroll(deps: unknown[]): UseChatScrollReturn {
+function useChatScroll(deps: unknown[]): RefObject<HTMLDivElement | null> {
   const ref = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     const el = ref.current;
